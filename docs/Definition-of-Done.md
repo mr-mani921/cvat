@@ -43,10 +43,15 @@ An honest performance miss or explicitly declared unfinished requirement is not 
   rejection demonstrations. Do not include passwords, session cookies or tokens in evidence.
   **Verified evidence:** [Requirement 5 verification](#requirement-5-verification): live Task 2 responses of
   200/401/403, three passing authorization tests with real OPA enforcement, and actual browser denials without stale data.
-- [ ] **R6 - Endpoint speed measured.** Evaluate MO-1 using its predefined dataset, protocol, three excluded warm-ups
+- [x] **R6 - Endpoint speed measured.** Evaluate MO-1 using its predefined dataset, protocol, three excluded warm-ups
   and five measured requests. Report median and spread, raw output and conditions; say achieved or missed with reasons.
   **Evidence required:** completed [MO-1 results](Objectives.md#calculation-and-evidence), tested SHA and correctness
   checks. This item records a valid, honest evaluation; a missed target must remain explicitly marked missed.
+  **Verified evidence:** [completed MO-1 batch](Objectives.md#completed-measurement-29-october-2026) at `21ca1ddf1`:
+  three excluded warm-ups and five valid measured requests; median **53.590 ms**, min/max **50.526/58.037 ms**,
+  range **7.511 ms**. The unchanged 150 ms target was achieved for the predeclared fallback task 2 (12 images,
+  96 shapes, 26 classes). All eight responses matched PostgreSQL; independent calculation agreed.
+  The planned 5,000-image annotated workload remains unmeasured.
 - [ ] **R7 - Additional filter or grouping.** Implement one useful dimension beyond plain per-class counts, explain
   the choice and demonstrate that it changes results correctly while preserving task access boundaries.
   **Evidence required:** code reference, rationale, known-result tests and actual filtered/grouped responses.
@@ -116,9 +121,10 @@ review. Inspect these conditions explicitly before marking submission ready.
 
 ## Current limitations and unfinished work
 
-R1-R5 are verified locally as recorded below. R6-R10 remain unchecked. Formal performance measurements,
-recording, fork `main` setup, PR and final reply remain outstanding. The original 5,000-image task is preserved;
-its COCO annotations have not been imported. The 12-image sample is validation data, not an MO-1 benchmark result.
+R1-R6 are verified locally as recorded here and in Objectives.md. R7-R10 remain unchecked. The declared small-sample
+MO-1 measurement is complete; recording, fork `main` setup, PR and final reply remain outstanding.
+The original 5,000-image task is preserved without imported COCO annotations. The 12-image task supplied the declared
+MO-1 fallback result; performance for the original full-size annotated workload remains unverified.
 R8-R9 are stretch goals in the committed Plan; if omitted, retain their unchecked state and record the actual reason.
 Record the final stopping point and reasons for unfinished work at submission.
 
@@ -413,7 +419,8 @@ Screenshots linked beside R3/R4 were captured and visually inspected. Network ca
 Task 2's values include person 31, book 16, chair 6 and vase 4, matching the backend evidence above.
 Only the verification browser's request was intercepted; the backend remained running normally.
 Final PostgreSQL inspection confirmed task 1 still has 5,000 images/0 shapes and task 2 has 12 images/96 shapes;
-temporary Cypress tasks were removed. No formal MO-1 measurements were performed, and its 150 ms target is unchanged.
+temporary Cypress tasks were removed. At that R2-R4 verification, no formal MO-1 measurements had been performed;
+the later result is recorded in Objectives.md and the 150 ms target is unchanged.
 
 To repeat manually, sign in normally, open task 2, choose **Actions -> Annotation analytics**, and compare the graph
 with the Network panel's count response. Scroll the chart to see every class. Open the same action for task 1 to see
@@ -537,4 +544,5 @@ dispatchEvent(new PopStateEvent('popstate'));
 ```
 
 This evidence covers the two dedicated local users and tasks; it is not an audit of every organization role or
-personal access-token scope. Formal MO-1 measurements remain unperformed and the 150 ms objective is unchanged.
+personal access-token scope. At that R5 verification, MO-1 remained unmeasured; its later result is recorded in
+Objectives.md with the original 150 ms target unchanged.
