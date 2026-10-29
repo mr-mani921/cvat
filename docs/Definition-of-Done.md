@@ -52,6 +52,9 @@ An honest performance miss or explicitly declared unfinished requirement is not 
   range **7.511 ms**. The unchanged 150 ms target was achieved for the predeclared fallback task 2 (12 images,
   96 shapes, 26 classes). All eight responses matched PostgreSQL; independent calculation agreed.
   The planned 5,000-image annotated workload remains unmeasured.
+  **Final-code follow-up:** [separate batch](Objectives.md#final-code-results-and-runtime-verification) at
+  `885b3f5a6`: five measured requests, median **64.670 ms**, min/max **56.853/75.611 ms**, range **18.758 ms**;
+  all eight bodies match fresh SQL. The unchanged 150 ms target is met for the same small unfiltered workload.
 - [x] **R7 - Additional filter or grouping.** Implement one useful dimension beyond plain per-class counts, explain
   the choice and demonstrate that it changes results correctly while preserving task access boundaries.
   **Evidence required:** code reference, rationale, known-result tests and actual filtered/grouped responses.
@@ -60,13 +63,19 @@ An honest performance miss or explicitly declared unfinished requirement is not 
 - [ ] **R8 - WebSocket updates.** Saving annotation changes causes the open graph to update through WebSocket events
   without a manual refresh, with authenticated, authorized task scoping.
   **Evidence required:** WebSocket/request-flow references, relevant automated tests and a live save-to-graph demo.
+  **Not implemented:** secure event delivery and annotation-save notifications required additional infrastructure
+  and verification beyond the remaining time; the tested request-based page was retained. See the Plan decision record.
 - [ ] **R9 - Reconnection and recovery.** After a connection loss, the page reconnects and resynchronizes with saved
   database state, including changes missed during disconnection, without duplicated counts or stale final state.
   **Evidence required:** disconnect/change/reconnect steps, relevant automated tests and comparison with a fresh API
   response after recovery.
-- [ ] **R10 - Decision record.** Close [Plan.md](Plan.md) with the actual chosen approach, a rejected alternative and
+  **Not implemented:** no WebSocket transport was introduced, so reconnect/resynchronization is also unfinished.
+- [x] **R10 - Decision record.** Close [Plan.md](Plan.md) with the actual chosen approach, a rejected alternative and
   the concrete cost or trade-off of rejecting it.
   **Evidence required:** Plan section and commit/code references consistent with the delivered implementation.
+  **Verified evidence:** [final decision record](Plan.md#final-decision-record--29-october-2026-r10) records database
+  aggregation versus fetching full geometry to count in React, and the backend maintenance/scope trade-off.
+  Implementation: `cvat/apps/test/views.py:43-75`, `cvat-core/src/server-proxy.ts:2531`, committed in `885b3f5a6`.
 
 ## Setup, documentation and verification
 
@@ -84,20 +93,27 @@ An honest performance miss or explicitly declared unfinished requirement is not 
   The initially inspected task's 5,000 images with zero saved annotations do not satisfy this item.
   **Verified evidence:** separate task 2 has 12 images and 96 imported rectangles; job 2 was opened and its labeled
   boxes visually inspected on `000000000139.jpg`. See the [import evidence](#live-coco-verification).
-- [ ] **Appropriate tests and reproducibility.** Run focused backend tests and relevant frontend checks, plus runtime
+- [x] **Appropriate tests and reproducibility.** Run focused backend tests and relevant frontend checks, plus runtime
   verification of the claimed requirements. Record commands, environment, actual outputs, failures and limitations.
   Preserve unrelated Docker projects and data. No claim of passing checks that were not run.
   **Evidence required:** commands/output and steps here or in Objectives, tied to tested commits.
-- [ ] **Authentic evidence and declared limits.** All reported measurements come from the submitted work and machine.
+  **Verified evidence:** R7 verification below records 22 backend and 18 Cypress tests, static checks and SQL/browser
+  comparisons; earlier sections retain their commands and runtime setup. Final source is frozen at `885b3f5a6`.
+- [x] **Authentic evidence and declared limits.** All reported measurements come from the submitted work and machine.
   Each reported performance objective has five genuine runs, raw output, median/spread and machine/baseline details.
   Every completed checklist item has evidence; unfinished work and its reason remain visible.
   **Evidence required:** final checklist audit and [Objectives](Objectives.md), with no unsupported completion claims.
+  **Verified evidence:** final review checked both eight-transfer batches against their bodies and SQL references,
+  independently recalculated median/range, and retained original conditions/SHA. R8/R9 and external deliverables
+  remain unchecked; the final small-sample and source-mounted runtime limitations are explicit in Objectives.
 
 ## Git, recording and submission
 
-- [ ] **Progressive Git history.** Work stays on `dev-test01`; meaningful commits explain what changed and why.
+- [x] **Progressive Git history.** Work stays on `dev-test01`; meaningful commits explain what changed and why.
   History shows development in steps, not one large final commit or finished code in the first assessment commit.
   **Evidence required:** final branch and chronological commit log.
+  **Verified evidence:** `git log --reverse --oneline 4a09e27ff..885b3f5a6` shows Plan `d817d4170`, acceptance criteria
+  `3c8d962a9`, backend `ecc12973f`, frontend `6f909bead`, R5 `21ca1ddf1`, MO-1 `60cfe169e`, then job filter `885b3f5a6`.
 - [ ] **Public fork and correct PR.** One PR goes from `mr-mani921/cvat:dev-test01` into `mr-mani921/cvat:main`.
   Verify that `main` exists with the intended baseline and review the diff. No PR goes to upstream CVAT.
   **Evidence required:** public fork and PR links, with visible base/head owner and branch names.
@@ -123,14 +139,20 @@ review. Inspect these conditions explicitly before marking submission ready.
 
 ## Current limitations and unfinished work
 
-R1-R7 are verified locally as recorded here and in Objectives.md. R8-R10 remain unchecked. The declared small-sample
-MO-1 measurement is complete; recording, fork `main` setup, PR and final reply remain outstanding.
+Final stopping point: R1-R7 are implemented and verified locally; R10's decision record is complete. R8/R9 are
+intentionally unfinished because secure WebSocket delivery, save notifications and reconnection/resynchronization
+required more infrastructure and verification than the remaining time allowed. Annotation saves do not update an
+already open graph live; refresh/navigation or another explicit request is needed.
+Recording, fork `main` setup, remote publication/PR, delivery of the documents on that branch and final reply remain
+outstanding. They are not represented as completed submission steps.
 The original 5,000-image task is preserved without imported COCO annotations. The 12-image task supplied the declared
 MO-1 fallback result; performance for the original full-size annotated workload remains unverified.
-The job filter changes the benchmarked endpoint after the recorded MO-1 SHA; recheck final-code performance after
-implementation is frozen. The original measurements and 150 ms objective remain unchanged.
-R8-R9 are stretch goals in the committed Plan; if omitted, retain their unchecked state and record the actual reason.
-Record the final stopping point and reasons for unfinished work at submission.
+The original MO-1 SHA and measurements are preserved; a separate final-code batch at `885b3f5a6` also met the
+unchanged 150 ms median objective on task 2. Filtered-request, full-size annotated workload, cold-start and concurrent
+performance remain unmeasured. Both batches used a prebuilt server image with submitted source mounted read-only.
+Plan presentation was condensed at finalization without changing its original eight-hour allocations or priorities.
+An A4 layout check with 10.5 pt body text and 9 pt table text fits one page; the original first-commit Plan remains
+available in `d817d4170`.
 
 ## Requirement 1 verification
 
@@ -329,7 +351,8 @@ Task cards and task details share the new **Actions -> Annotation analytics** en
 `/tasks/{id}/annotation-analytics`. Existing CVAT analytics reports are preserved.
 [Routing](../cvat-ui/src/components/cvat-app.tsx) supplies the task ID to
 [AnnotationAnalyticsPage](../cvat-ui/src/components/annotation-analytics-page/annotation-analytics-page.tsx).
-It calls the typed `core.analytics.annotationCounts(taskID, signal)` method through CVAT's plugin/API layer and
+At this historical R2 verification, it called the typed `core.analytics.annotationCounts(taskID, signal)` method;
+the current R7 interface is `core.analytics.annotationCounts(taskID, jobID?, signal?)`. Both use CVAT's plugin/API layer and
 [server proxy](../cvat-core/src/server-proxy.ts), which uses the existing Axios session, CSRF and organization setup.
 No frontend token entry or new authentication storage is used. The Django endpoint and aggregation are unchanged.
 

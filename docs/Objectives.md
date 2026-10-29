@@ -12,7 +12,7 @@ Source: xis.ai Full Stack Technical Assessment, Version 3.0, sections 3 and 6.
 | Target | Median of five measured requests at or below **150 ms**. |
 | Conditions | Local source-built CVAT, PostgreSQL and OPA; one client; fixed COCO task; three excluded warm-ups. |
 | Not included | Login, image/annotation import, cold start, browser rendering, remote traffic, or concurrent users. |
-| Current result | **Achieved for the declared 12-image sample:** median **53.590 ms**; the planned 5,000-image workload remains unmeasured. |
+| Original batch result | **Achieved for the declared 12-image sample:** median **53.590 ms**; separate final-code result below; the planned 5,000-image workload remains unmeasured. |
 
 ### Justification and dataset
 
@@ -284,9 +284,9 @@ command and conditions above are the repository evidence; private credentials an
 ## Machine and repository information
 
 **Later source changes:** the optional job filter changes the endpoint after the MO-1 run above, which remains
-evidence for tested commit `21ca1ddf1d891ce1970053dbe98db1cdd29fc116` only. Recheck final-code performance after the
-implementation is frozen. No timing for the job-filter implementation or filtered requests is claimed here;
-the original 150 ms objective, five measurements and raw output are preserved.
+evidence for tested commit `21ca1ddf1d891ce1970053dbe98db1cdd29fc116` only. The separate final-code measurement below
+checks the unfiltered endpoint after the implementation was frozen at R7. Filtered-request performance remains
+unmeasured; the original 150 ms objective, five measurements and raw output are preserved.
 
 Verified on 29 October 2026. Recheck and record changes when measurements are actually taken.
 Host-visible RAM and Docker-visible memory are separate limits, not measurements of currently free memory.
@@ -324,3 +324,100 @@ PRETTY_NAME="Ubuntu 26.04 LTS"
 The measurement-time source/build identity, SHA, endpoint, counts/semantics, curl version/command, user role,
 runtime conditions and completed output are recorded above. The earlier machine snapshot is preserved;
 the WSL distribution recheck limitation is declared with the measurement conditions.
+
+## Final-code measurement: conditions declared before timing
+
+Declared on 29 October 2026 before the follow-up warm-ups. Application code is frozen at R7 commit
+`885b3f5a6b08b95253f8bc61b8ff6897b6530e7d`; only final documentation may change. This is a separate batch,
+not a replacement for the original result. The target remains **150 ms**, with exactly three excluded warm-ups
+and five measured requests using the original Windows curl procedure and command, without filters.
+
+The endpoint remains `http://localhost:8080/api/test/tasks/2/annotation-counts`. A fresh read-only PostgreSQL
+aggregation confirmed the same reference: 12 images, 96 eligible shapes, all 26 per-class counts unchanged,
+and jobs 2/3/4 containing 43/12/41 shapes. The same fallback reason and dataset limitations apply.
+Authentication uses the ordinary task owner's CVAT session, established outside timing.
+
+The actual runtime remains the prebuilt `cvat/server:dev` image with the submitted backend source mounted
+read-only, rather than a freshly source-built server image. Normal authorization and database aggregation remain
+enabled; there is no response cache or intentional import, build or test workload during timing. Existing services
+and unrelated applications will remain running. This checks the final unfiltered endpoint, not filtered-request,
+large-dataset, cold-start or concurrent-user performance. Runtime/source checks and raw results follow below.
+
+### Final-code results and runtime verification
+
+Batch started **2026-10-29 20:21:43 +05:00** and finished **20:21:46 +05:00**. The repository was clean at R7 before
+the premeasurement declaration; only `docs/Objectives.md` was dirty during timing. Its declaration SHA-256 was
+`0D2351A68C9218744BC21478F18DA679E39FC7E8A39322ECDFC725AE9FBE9FDF`.
+
+The original command and one-process-per-request protocol were reused via the local
+`D:/my_codes/full-stack-assessment/analytics-dev/measure_mo1_final.ps1`, working in
+`D:/my_codes/full-stack-assessment/cvat`. Only its output directory and summary printing changed; login and
+transfer options did not. Windows curl remained 8.21.0 (libcurl 8.21.0, Schannel).
+The full transfer output, bodies, empty stderr files, metadata, results and independent verification are retained
+outside Git in `../analytics-dev/mo1-run-20261029-final/`; no session values are part of the evidence.
+
+Runtime checks confirmed the same server image ID
+`sha256:33441cdd1e4664c53384d82663470f4937b43a41522e1ec50851ae04ac52359f`, read-only `/opt/cvat/cvat` mount,
+`cvat.settings.production`, `DEBUG=False`, existing session authentication and `IsAuthenticated`/CVAT PolicyEnforcer.
+Normalized SHA-256 hashes in the running mount matched the committed R7 source:
+
+```text
+cvat/apps/test/views.py       919c3adc582e831d5eeef703b98692aab79f8ea26e175d6d11c2ed3a624fa6e2
+cvat/apps/test/permissions.py 5b2ee54a7df6d143b18dfb17db07711543908c7b357d51568004c41025a15f90
+cvat/settings/base.py        3e1198217b6c89199e805bc78775ec1e23c56f73cec92444d5a6f91e79e0429e
+```
+
+CPU, host RAM/OS and Docker configuration were rechecked unchanged from the machine table: i5-8350U, 4 cores/8
+logical CPUs, 12,704,616,448 bytes host RAM, Windows 11 Pro 10.0.26200/build 26200; Docker Engine 29.9.2,
+6 CPUs and 8,327,909,376 bytes memory. The earlier WSL information and its recheck limitation remain as documented.
+There was no intentional import, build or test suite during timing. Existing services and host applications stayed
+running; the original batch's pressure snapshots are not measurements of this later batch.
+
+Full raw request output, in original order; exactly the first three transfers are excluded:
+
+```text
+warm-up 1
+http_code=200 time_total_s=0.158701
+exit_code=0
+validation=True task_id=2 total=96 classes=26
+warm-up 2
+http_code=200 time_total_s=0.314664
+exit_code=0
+validation=True task_id=2 total=96 classes=26
+warm-up 3
+http_code=200 time_total_s=0.058664
+exit_code=0
+validation=True task_id=2 total=96 classes=26
+measured 1
+http_code=200 time_total_s=0.066384
+exit_code=0
+validation=True task_id=2 total=96 classes=26
+measured 2
+http_code=200 time_total_s=0.064670
+exit_code=0
+validation=True task_id=2 total=96 classes=26
+measured 3
+http_code=200 time_total_s=0.060965
+exit_code=0
+validation=True task_id=2 total=96 classes=26
+measured 4
+http_code=200 time_total_s=0.075611
+exit_code=0
+validation=True task_id=2 total=96 classes=26
+measured 5
+http_code=200 time_total_s=0.056853
+exit_code=0
+validation=True task_id=2 total=96 classes=26
+```
+
+Measured milliseconds in original order: **66.384, 64.670, 60.965, 75.611, 56.853**.
+Sorted: 56.853, 60.965, **64.670**, 66.384, 75.611. Median **64.670 ms**; minimum **56.853 ms**;
+maximum **75.611 ms**; range **18.758 ms** (`75.611 - 56.853`). The unrounded median is below 150 ms:
+**MO-1 achieved for the final unfiltered endpoint on this 12-image/96-shape sample.**
+
+A separate Python Decimal calculation agreed with the PowerShell result. It reopened every saved body and compared
+all 26 `(label_id, label_name, count)` entries and total against a fresh read-only PostgreSQL aggregation after
+timing; all eight matched, all exit codes were zero, and all stderr files were empty. No transfer was discarded.
+The 314.664 ms warm-up is retained and excluded by the predeclared three-warm-up rule, not by its latency.
+No optimization or target change was made. These two small batches do not establish a regression, large-dataset
+performance or filtered-request performance; neither batch replaces the other.
