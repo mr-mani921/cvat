@@ -19,6 +19,16 @@ export interface SerializedAnnotationImporter {
     dimension: DimensionType;
 }
 
+export interface SerializedTaskAnnotationCounts {
+    task_id: number;
+    total: number;
+    counts: {
+        label_id: number;
+        label_name: string;
+        count: number;
+    }[];
+}
+
 export type SerializedAnnotationExporter = SerializedAnnotationImporter;
 
 export interface SerializedAnnotationFormats {
