@@ -283,6 +283,11 @@ command and conditions above are the repository evidence; private credentials an
 
 ## Machine and repository information
 
+**Later source changes:** the optional job filter changes the endpoint after the MO-1 run above, which remains
+evidence for tested commit `21ca1ddf1d891ce1970053dbe98db1cdd29fc116` only. Recheck final-code performance after the
+implementation is frozen. No timing for the job-filter implementation or filtered requests is claimed here;
+the original 150 ms objective, five measurements and raw output are preserved.
+
 Verified on 29 October 2026. Recheck and record changes when measurements are actually taken.
 Host-visible RAM and Docker-visible memory are separate limits, not measurements of currently free memory.
 

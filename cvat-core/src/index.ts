@@ -179,7 +179,9 @@ export default interface CVATCore {
         };
     }
     analytics: {
-        annotationCounts: (taskID: number, signal?: AbortSignal) => Promise<SerializedTaskAnnotationCounts>;
+        annotationCounts: (
+            taskID: number, jobID?: number, signal?: AbortSignal,
+        ) => Promise<SerializedTaskAnnotationCounts>;
         quality: {
             reports: (filter: QualityReportsFilter, aggregate?: boolean) => Promise<PaginatedResource<QualityReport>>;
             conflicts: (filter: QualityConflictsFilter) => Promise<QualityConflict[]>;

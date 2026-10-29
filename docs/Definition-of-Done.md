@@ -52,9 +52,11 @@ An honest performance miss or explicitly declared unfinished requirement is not 
   range **7.511 ms**. The unchanged 150 ms target was achieved for the predeclared fallback task 2 (12 images,
   96 shapes, 26 classes). All eight responses matched PostgreSQL; independent calculation agreed.
   The planned 5,000-image annotated workload remains unmeasured.
-- [ ] **R7 - Additional filter or grouping.** Implement one useful dimension beyond plain per-class counts, explain
+- [x] **R7 - Additional filter or grouping.** Implement one useful dimension beyond plain per-class counts, explain
   the choice and demonstrate that it changes results correctly while preserving task access boundaries.
   **Evidence required:** code reference, rationale, known-result tests and actual filtered/grouped responses.
+  **Verified evidence:** [Requirement 7 verification](#requirement-7-verification): 22 passing backend tests,
+  18 passing Cypress tests, per-class SQL matches for jobs 2/3/4, actual browser graphs and rejection cases.
 - [ ] **R8 - WebSocket updates.** Saving annotation changes causes the open graph to update through WebSocket events
   without a manual refresh, with authenticated, authorized task scoping.
   **Evidence required:** WebSocket/request-flow references, relevant automated tests and a live save-to-graph demo.
@@ -121,10 +123,12 @@ review. Inspect these conditions explicitly before marking submission ready.
 
 ## Current limitations and unfinished work
 
-R1-R6 are verified locally as recorded here and in Objectives.md. R7-R10 remain unchecked. The declared small-sample
+R1-R7 are verified locally as recorded here and in Objectives.md. R8-R10 remain unchecked. The declared small-sample
 MO-1 measurement is complete; recording, fork `main` setup, PR and final reply remain outstanding.
 The original 5,000-image task is preserved without imported COCO annotations. The 12-image task supplied the declared
 MO-1 fallback result; performance for the original full-size annotated workload remains unverified.
+The job filter changes the benchmarked endpoint after the recorded MO-1 SHA; recheck final-code performance after
+implementation is frozen. The original measurements and 150 ms objective remain unchanged.
 R8-R9 are stretch goals in the committed Plan; if omitted, retain their unchecked state and record the actual reason.
 Record the final stopping point and reasons for unfinished work at submission.
 
@@ -546,3 +550,132 @@ dispatchEvent(new PopStateEvent('popstate'));
 This evidence covers the two dedicated local users and tasks; it is not an audit of every organization role or
 personal access-token scope. At that R5 verification, MO-1 remained unmeasured; its later result is recorded in
 Objectives.md with the original 150 ms target unchanged.
+
+## Requirement 7 verification
+
+Verified on 29 October 2026 using source changes based on `60cfe169e`.
+Job filtering was chosen because jobs divide assigned annotation work: comparing their class distributions exposes
+differences hidden by the task-wide total. Counts describe saved eligible shapes, not annotation quality or worker speed.
+
+### API and security
+
+`GET /api/test/tasks/{task_id}/annotation-counts?job_id={job_id}` restricts the existing aggregation to one job.
+Omitting `job_id` preserves the task-wide behavior and original `task_id`/`total`/`counts` response schema.
+The saved-shape eligibility rules are unchanged. A valid empty job returns HTTP 200, `total=0`, `counts=[]`.
+
+`cvat/apps/test/views.py:45` authorizes the task before validating the filter. The lookup at line 58 restricts the job
+to this task, ordinary annotation type and no parent job. Line 65 checks job object permissions before aggregation.
+`cvat/apps/test/permissions.py:15` maps that second check to CVAT's actual `JobPermission.VIEW_ANNOTATIONS`, retaining
+the normal PolicyEnforcer, OPA and access-token policy handling. The endpoint requires both task and selected-job
+annotation-read access; being assigned only to a job does not grant access to this task-level analytics endpoint.
+Filtering adds a job lookup and permission check, while counts remain one database `GROUP BY` query.
+
+Observed live requests against task 2:
+
+| Selection | HTTP | Total | Populated classes | Independent SQL |
+| --- | --- | --- | --- | --- |
+| All jobs, no filter | 200 | 96 | 26 | Every class matches |
+| Job 2 | 200 | 43 | 15 | Every class matches |
+| Job 3 | 200 | 12 | 8 | Every class matches |
+| Job 4 | 200 | 41 | 8 | Every class matches |
+
+Empty, zero, negative, nonnumeric, fractional, oversized and repeated `job_id` inputs returned 400.
+Missing job 999999 and job 1 (which belongs to task 1) returned the same 404 response.
+Anonymous and authenticated outsider requests with `job_id=2` returned 401 and 403, respectively.
+Every rejection omitted `counts` and `total`. Special/parented jobs and valid empty jobs were additionally covered
+by deterministic backend fixtures; no existing task's annotations or assignments were changed.
+
+The independent reference came from this query inside `BEGIN READ ONLY` / `ROLLBACK`, using
+`docker exec cvat_db psql -U root -d cvat -X -A -t`:
+
+```sql
+SELECT s.job_id, s.label_id, l.name AS label_name, count(*) AS count
+FROM engine_labeledshape s
+JOIN engine_label l ON l.id = s.label_id
+JOIN engine_job j ON j.id = s.job_id
+JOIN engine_segment seg ON seg.id = j.segment_id
+WHERE seg.task_id = 2 AND j.type = 'annotation' AND j.parent_job_id IS NULL
+  AND s.parent_id IS NULL AND NOT s.outside
+GROUP BY s.job_id, s.label_id, l.name ORDER BY s.job_id, s.label_id;
+```
+
+The live verification compared every API label ID/name/count with this reference, including merging shared classes
+for the unfiltered result. The job totals sum to 96; the union contains 26 populated classes.
+Local raw references and non-secret API/browser captures remain outside Git in `../analytics-dev/r7-*.json`.
+Post-test PostgreSQL inspection confirmed only the original tasks remain: task 1 has 5,000 images/0 shapes and
+task 2 has 12 images/96 shapes. The temporary Cypress tasks were removed.
+
+### UI and actual browser checks
+
+The existing task action and analytics route are unchanged. The page's **Job** selector defaults to **All jobs**.
+`cvat-ui/src/components/annotation-analytics-page/annotation-analytics-page.tsx:85` uses `core.jobs.get` with
+aggregation enabled, fetching all pages through CVAT's authenticated client. Only eligible jobs from the current
+task appear, sorted by ID, with frame ranges. Job-list failure has a separate safe error and Retry jobs action;
+the independently successful task-wide response remains available.
+
+Line 107 calls the typed analytics client with the selected job. The existing Axios layer adds `job_id` only when
+selected (`cvat-core/src/server-proxy.ts:2531`); no filter is sent for All jobs. Counts state is keyed by task and job,
+with immediate stale-data hiding at line 129 and AbortController/active guards on obsolete count requests.
+Job-list responses also have an active guard. Changing tasks resets the selection; a denied count request removes
+the graph, summary and selector. Empty-job wording distinguishes it from an empty task.
+
+Only `cvat_server` was restarted to reload its source mount; existing volumes and other services were preserved.
+Its normal startup checks outlasted the first readiness probe; the later live API checks passed without changing
+startup code. The focused UI build succeeded and the live index served the new
+`cvat-ui.9eaedc0885acf18dd32c.min.js` bundle from the existing read-only mount.
+
+A separate Edge profile used normal login and task navigation. Jobs 2, 3 and 4 and All jobs each rendered every SQL
+class/value correctly; returning to All jobs restored 96. Screenshots of [job 2](evidence/annotation-analytics-job-2.png)
+and [job 3](evidence/annotation-analytics-job-3.png) were visually inspected: 1600x1000, about 70 KiB combined,
+with no passwords, tokens, cookies or PNG text metadata.
+Browser-local interception verified a selected-job 503 clears old data and Retry fetches the same real job again.
+A controlled empty response showed the job no-data message without a graph; this was not a claim that an existing
+COCO job is empty. A real outsider login followed by a job request produced 403 and removed all previous statistics
+and choices. No backend shutdown or annotation edits were used to simulate request errors.
+
+### Automated checks and reproduction
+
+```powershell
+docker run --rm --entrypoint python3 --network container:cvat_opa `
+  --mount 'type=bind,source=D:/my_codes/full-stack-assessment/cvat,target=/opt/cvat,readonly' `
+  -e CVAT_BASE_DIR=/tmp -e PYTHONDONTWRITEBYTECODE=1 cvat/analytics-tests:local `
+  /opt/cvat/manage.py test cvat.apps.test --settings cvat.settings.testing -v 2
+
+node node_modules/typescript/bin/tsc --noEmit -p cvat-ui/tsconfig.json
+node node_modules/stylelint/bin/stylelint.mjs cvat-ui/src/components/annotation-analytics-page/styles.scss
+corepack yarn build:cvat-ui
+```
+
+Backend: **22 tests passed in 2.728 s** with real OPA decisions. Coverage includes per-job isolation, unchanged
+overview, project-owned labels, empty jobs, invalid/repeated IDs, missing/cross-task/special/parented jobs, anonymous
+and outsider rejection, and one aggregation query. A payload observer delegates unchanged to the real job policy
+and confirms the selected job is checked with `VIEW_ANNOTATIONS`; authorization outcomes are not mocked.
+The initial empty-ID test failed because optional HTML-form input was treated as omitted; validating a plain query
+dictionary fixed it, and the full focused suite passed afterward.
+
+TypeScript and stylelint passed. Scoped ESLint passed with 0 errors and 26 pre-existing return-type warnings in
+`server-proxy.ts`; the updated Cypress spec also passed lint. Black and isort checks passed for `cvat/apps/test`.
+Webpack completed with two asset/entrypoint-size warnings; no dependencies were added.
+The first Cypress pass was 17/18: task-list loading exceeded the existing navigation assertion's wait. The test now
+waits for that real request and leaves unrelated job-list requests untouched. The final run passed **18/18 in
+1 minute 57 seconds**, including all previous analytics cases plus job selection/query parameters, eligible choices,
+empty jobs, filtered retry, 401/403 cleanup, delayed-job response isolation, job-list retry and task-change reset.
+No coverage report was generated; no coverage percentage is claimed.
+
+The summary's singular/plural correction was rebuilt as `cvat-ui.5bc65efd4333728d27e3.min.js` and verified live.
+The same 18 Cypress tests passed again in **2 minutes 3 seconds**, including zero annotations/classes, one annotation
+in one class, and multiple annotations in one class. TypeScript and scoped lint passed again.
+
+Run the focused browser spec from `tests/` with the normal verification credentials supplied privately:
+
+```powershell
+corepack yarn cypress run --browser chrome --spec cypress/e2e/features2/annotation_analytics.js --config video=false
+```
+
+For manual verification, sign in normally and open task 2 -> **Actions -> Annotation analytics**. Select jobs 2, 3
+and 4 and expect 43, 12 and 41, then choose All jobs and expect 96. Inspect Network to confirm the selected `job_id`
+and matching JSON. In the same signed-in browser, open
+`/api/test/tasks/2/annotation-counts?job_id=1` (404) or `?job_id=bad` (400).
+For a safe failed-request check, block the count endpoint in browser DevTools, switch jobs, then unblock and Retry;
+the previous graph must disappear and the selected job must recover. An outsider's private window must show no
+statistics. A valid empty job is covered by fixtures and controlled browser responses, not the three populated COCO jobs.

@@ -3,6 +3,10 @@
 from rest_framework import serializers
 
 
+class AnnotationCountsQuerySerializer(serializers.Serializer):
+    job_id = serializers.IntegerField(min_value=1, max_value=2**63 - 1, required=False)
+
+
 class ClassCountSerializer(serializers.Serializer):
     label_id = serializers.IntegerField(min_value=1)
     label_name = serializers.CharField()

@@ -2528,10 +2528,12 @@ async function createAsset(file: File, guideId: number): Promise<SerializedAsset
     }
 }
 
-async function getAnnotationCounts(taskID: number, signal?: AbortSignal): Promise<SerializedTaskAnnotationCounts> {
+async function getAnnotationCounts(
+    taskID: number, jobID?: number, signal?: AbortSignal,
+): Promise<SerializedTaskAnnotationCounts> {
     try {
         const response = await Axios.get<SerializedTaskAnnotationCounts>(
-            `${config.backendAPI}/test/tasks/${taskID}/annotation-counts`, { signal },
+            `${config.backendAPI}/test/tasks/${taskID}/annotation-counts`, { signal, params: { job_id: jobID } },
         );
         return response.data;
     } catch (errorData) {

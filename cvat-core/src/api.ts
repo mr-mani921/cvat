@@ -424,8 +424,8 @@ function build(): CVATCore {
             },
         },
         analytics: {
-            async annotationCounts(taskID, signal) {
-                return PluginRegistry.apiWrapper(cvat.analytics.annotationCounts, taskID, signal);
+            async annotationCounts(taskID, jobID, signal) {
+                return PluginRegistry.apiWrapper(cvat.analytics.annotationCounts, taskID, jobID, signal);
             },
             events: {
                 async export(filter = {}) {

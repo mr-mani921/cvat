@@ -1,5 +1,7 @@
 # SPDX-License-Identifier: MIT
 
+from unittest.mock import patch
+
 from django.db import connection
 from django.test import override_settings
 from django.test.utils import CaptureQueriesContext
@@ -19,6 +21,7 @@ from cvat.apps.engine.models import (
     Task,
     TrackedShape,
 )
+from cvat.apps.engine.permissions import JobPermission
 from cvat.apps.engine.tests.utils import ApiTestBase
 from cvat.apps.iam.models import User
 
@@ -60,9 +63,11 @@ class AnnotationCountsAPITestCase(ApiTestBase):
         values.update(fields)
         return LabeledShape.objects.create(**values)
 
-    def _get_counts(self, task=None, user=None):
+    def _get_counts(self, task=None, user=None, job_id=None):
         return self._get_request(
-            f"/api/test/tasks/{(task or self.task).id}/annotation-counts", user or self.owner
+            f"/api/test/tasks/{(task or self.task).id}/annotation-counts",
+            user or self.owner,
+            query_params={} if job_id is None else {"job_id": job_id},
         )
 
     def test_multiple_labels_and_jobs(self):
@@ -120,6 +125,9 @@ class AnnotationCountsAPITestCase(ApiTestBase):
             )
             for frame in range(i + 1):
                 self._shape(label=label, job=job, frame=frame)
+            filtered = self._get_counts(task=task, job_id=job.id)
+            self.assertEqual(filtered.status_code, status.HTTP_200_OK, filtered.content)
+            self.assertEqual(filtered.json()["total"], i + 1)
 
         self.assertFalse(tasks[0].label_set.exists())
         response = self._get_counts(task=tasks[0])
@@ -250,3 +258,111 @@ class AnnotationCountsAPITestCase(ApiTestBase):
         )
 
         self.assertEqual(response.status_code, status.HTTP_405_METHOD_NOT_ALLOWED, response.content)
+
+    def test_job_filter_isolates_jobs_and_preserves_task_overview(self):
+        self._shape()
+        self._shape(outside=True)
+        self._shape(job=self.job2, label=self.person, frame=5)
+        self._shape(job=self.job2, label=self.person, frame=6)
+
+        for job, label, total in ((self.job1, self.car, 1), (self.job2, self.person, 2)):
+            with self.subTest(job=job.id):
+                response = self._get_counts(job_id=job.id)
+                self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
+                self.assertEqual(
+                    response.json(),
+                    {
+                        "task_id": self.task.id,
+                        "total": total,
+                        "counts": [
+                            {"label_id": label.id, "label_name": label.name, "count": total}
+                        ],
+                    },
+                )
+        self.assertEqual(self._get_counts().json()["total"], 3)
+
+    def test_empty_job_is_a_valid_empty_response(self):
+        self._shape()
+        response = self._get_counts(job_id=self.job2.id)
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
+        self.assertEqual(response.json(), {"task_id": self.task.id, "total": 0, "counts": []})
+
+    def test_invalid_job_filter_is_rejected(self):
+        for job_id in ("", "not-a-job", "1.5", "0", "-1", "9" * 40):
+            with self.subTest(job_id=job_id), CaptureQueriesContext(connection) as queries:
+                response = self._get_counts(job_id=job_id)
+                self.assertEqual(
+                    response.status_code, status.HTTP_400_BAD_REQUEST, response.content
+                )
+                self.assertNotIn("counts", response.json())
+                self.assertFalse(any("engine_labeledshape" in q["sql"] for q in queries))
+        response = self._get_request(
+            f"/api/test/tasks/{self.task.id}/annotation-counts?job_id={self.job1.id}&job_id={self.job2.id}",
+            self.owner,
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST, response.content)
+
+    def test_missing_cross_task_and_ineligible_jobs_are_not_found(self):
+        other = Task.objects.create(name="other", owner=self.owner, dimension="2d")
+        other_job = Job.objects.create(
+            segment=Segment.objects.create(task=other, start_frame=0, stop_frame=9)
+        )
+        ineligible = [
+            Job.objects.create(
+                segment=Segment.objects.create(task=self.task, start_frame=0, stop_frame=9),
+                type=job_type,
+                parent_job=None if job_type == JobType.GROUND_TRUTH else self.job1,
+            )
+            for job_type in (JobType.GROUND_TRUTH, JobType.REPLICA, JobType.ANNOTATION)
+        ]
+        for job_id in (999999, other_job.id, *(job.id for job in ineligible)):
+            with self.subTest(job_id=job_id), CaptureQueriesContext(connection) as queries:
+                response = self._get_counts(job_id=job_id)
+                self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND, response.content)
+                self.assertNotIn("counts", response.json())
+                self.assertFalse(any("engine_labeledshape" in q["sql"] for q in queries))
+
+    def test_filtered_anonymous_and_outsider_requests_are_rejected(self):
+        self._shape()
+        for job_id in (self.job1.id, 999999):
+            with self.subTest(job_id=job_id), CaptureQueriesContext(connection) as queries:
+                anonymous = self.client.get(
+                    f"/api/test/tasks/{self.task.id}/annotation-counts?job_id={job_id}"
+                )
+                outsider = self._get_counts(job_id=job_id, user=self.outsider)
+                self.assertEqual(anonymous.status_code, status.HTTP_401_UNAUTHORIZED)
+                self.assertEqual(outsider.status_code, status.HTTP_403_FORBIDDEN)
+                self.assertNotIn("counts", anonymous.json())
+                self.assertNotIn("counts", outsider.json())
+                self.assertFalse(any("engine_labeledshape" in q["sql"] for q in queries))
+
+    def test_job_assignee_does_not_bypass_task_annotation_permission(self):
+        self.job1.assignee = self.outsider
+        self.job1.save(update_fields=["assignee"])
+        self._shape()
+        response = self._get_counts(job_id=self.job1.id, user=self.outsider)
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN, response.content)
+        self.assertNotIn("counts", response.json())
+
+    def test_filtered_counts_use_one_aggregation_and_allow_task_assignee(self):
+        self.task.assignee = self.outsider
+        self.task.save(update_fields=["assignee"])
+        self._shape()
+        self._shape(job=self.job2)
+        # Observe the actual job policy payload; delegate unchanged to the real OPA check.
+        with (
+            CaptureQueriesContext(connection) as queries,
+            patch.object(
+                JobPermission, "get_resource", autospec=True, side_effect=JobPermission.get_resource
+            ) as job_resource,
+        ):
+            response = self._get_counts(job_id=self.job1.id, user=self.outsider)
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
+        self.assertEqual(response.json()["total"], 1)
+        shape_queries = [q["sql"] for q in queries if "engine_labeledshape" in q["sql"]]
+        self.assertEqual(len(shape_queries), 1, shape_queries)
+        self.assertIn("GROUP BY", shape_queries[0].upper())
+        job_resource.assert_called_once()
+        checked_permission = job_resource.call_args.args[0]
+        self.assertEqual(checked_permission.obj.id, self.job1.id)
+        self.assertEqual(checked_permission.scope, JobPermission.Scopes.VIEW_ANNOTATIONS)

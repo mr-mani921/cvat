@@ -23,6 +23,19 @@
         margin-bottom: $grid-unit-size * 2;
     }
 
+    .cvat-annotation-analytics-job-filter {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: $grid-unit-size;
+        margin-top: $grid-unit-size * 2;
+
+        .ant-select {
+            width: $grid-unit-size * 36;
+            max-width: 100%;
+        }
+    }
+
     .cvat-annotation-analytics-loading {
         position: relative;
         min-height: $grid-unit-size * 20;
