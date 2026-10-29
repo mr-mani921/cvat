@@ -57,6 +57,7 @@ import {
 } from './exceptions';
 import { PaginatedResource } from './core-types';
 import { observe } from './capabilities';
+import { SerializedTaskAnnotationCounts } from './server-response-types';
 
 export default interface CVATCore {
     capabilities: {
@@ -178,6 +179,7 @@ export default interface CVATCore {
         };
     }
     analytics: {
+        annotationCounts: (taskID: number, signal?: AbortSignal) => Promise<SerializedTaskAnnotationCounts>;
         quality: {
             reports: (filter: QualityReportsFilter, aggregate?: boolean) => Promise<PaginatedResource<QualityReport>>;
             conflicts: (filter: QualityConflictsFilter) => Promise<QualityConflict[]>;

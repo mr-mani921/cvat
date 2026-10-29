@@ -447,6 +447,14 @@ export default function implementAPI(cvat: CVATCore): CVATCore {
         return new ConsensusSettings({ ...settings, descriptions });
     });
 
+    implementationMixin(cvat.analytics.annotationCounts, async (taskID: number, signal?: AbortSignal) => {
+        if (!Number.isSafeInteger(taskID) || taskID <= 0) {
+            throw new ArgumentError('Task ID must be a positive integer');
+        }
+
+        return serverProxy.analytics.annotationCounts(taskID, signal);
+    });
+
     implementationMixin(cvat.analytics.quality.reports, async (
         filter: Parameters<CVATCore['analytics']['quality']['reports']>[0],
         aggregate?: Parameters<CVATCore['analytics']['quality']['reports']>[1],

@@ -21,15 +21,22 @@ An honest performance miss or explicitly declared unfinished requirement is not 
   with independent database counts for a COCO task; saved-annotation change reflected by a later request.
   **Verified evidence:** [Requirement 1 verification](#requirement-1-verification): 15 passing tests, task 2's
   96 imported shapes matching COCO and PostgreSQL, and a saved change observed as 96 -> 97 -> 96.
-- [ ] **R2 - Integrated React page.** A reachable task-specific page in the existing React application calls the real
+- [x] **R2 - Integrated React page.** A reachable task-specific page in the existing React application calls the real
   endpoint for the selected task and displays its returned data; no separate frontend or static substitute.
   **Evidence required:** route/API integration references, browser request/response and live navigation demonstration.
-- [ ] **R3 - Class-count graph.** The page plots class names against their actual counts, with readable labels and
+  **Verified evidence:** [Requirements 2-4 verification](#requirements-2-4-verification), including task navigation,
+  actual authenticated API responses and 10 passing Cypress tests.
+- [x] **R3 - Class-count graph.** The page plots class names against their actual counts, with readable labels and
   values consistent with the API response.
   **Evidence required:** screenshot or Loom timestamp plus matching response and relevant frontend check output.
-- [ ] **R4 - Empty and failed requests.** A task with no eligible annotations presents a clear no-data state.
+  **Verified evidence:** task 2's [graph](evidence/annotation-analytics-success.png) and
+  [remaining rows](evidence/annotation-analytics-success-bottom.png): 96 saved shapes, all 26 classes; Cypress checks
+  every class/value, zero values, long labels and narrow layout.
+- [x] **R4 - Empty and failed requests.** A task with no eligible annotations presents a clear no-data state.
   A failed request presents a clear error, never a misleading zero-count graph or stale success presented as current.
   **Evidence required:** reproducible steps and observed results for both cases, with relevant automated tests.
+  **Verified evidence:** actual task 1 [empty state](evidence/annotation-analytics-empty.png), browser-local HTTP 503
+  [error state](evidence/annotation-analytics-error.png), successful Retry and loading/stale-response tests below.
 - [ ] **R5 - Existing login and task access.** Use CVAT authentication and task permissions. Allow an authorized user;
   refuse an anonymous request and an authenticated user without access to that task, without disclosing counts.
   **Evidence required:** tests exercising actual authorization, status/body outputs for all three cases, and live
@@ -107,7 +114,7 @@ review. Inspect these conditions explicitly before marking submission ready.
 
 ## Current limitations and unfinished work
 
-R1 is verified locally as recorded below. R2-R10 remain unchecked. The frontend, formal performance measurements,
+R1-R4 are verified locally as recorded below. R5-R10 remain unchecked. Formal performance measurements,
 recording, fork `main` setup, PR and final reply remain outstanding. The original 5,000-image task is preserved;
 its COCO annotations have not been imported. The 12-image sample is validation data, not an MO-1 benchmark result.
 R8-R9 are stretch goals in the committed Plan; if omitted, retain their unchecked state and record the actual reason.
@@ -298,3 +305,115 @@ The owner received 200; an anonymous request received 401 with no credentials pr
 user received 403, and missing task 999999 received 404. Host-side PowerShell confirmed the same 200 response through
 localhost's proxy. The sample owner also received 403 for original task 1, confirming it did not gain access.
 No credentials or session values are included here. These are correctness checks, not formal MO-1 measurements.
+
+## Requirements 2-4 verification
+
+Verified on 29 October 2026 against source based on backend commit `ecc12973f`.
+The original acceptance criteria are preserved; this section records their execution evidence.
+
+### Navigation, request flow and graph
+
+Task cards and task details share the new **Actions -> Annotation analytics** entry, linking dynamically to
+`/tasks/{id}/annotation-analytics`. Existing CVAT analytics reports are preserved.
+[Routing](../cvat-ui/src/components/cvat-app.tsx) supplies the task ID to
+[AnnotationAnalyticsPage](../cvat-ui/src/components/annotation-analytics-page/annotation-analytics-page.tsx).
+It calls the typed `core.analytics.annotationCounts(taskID, signal)` method through CVAT's plugin/API layer and
+[server proxy](../cvat-core/src/server-proxy.ts), which uses the existing Axios session, CSRF and organization setup.
+No frontend token entry or new authentication storage is used. The Django endpoint and aggregation are unchanged.
+
+The horizontal Chart.js bar chart uses every returned class, sorted by descending count and then class name.
+Long labels wrap, row height grows with label length, all rows remain scrollable, and values appear on bars
+and tooltips.
+The zero-based integer axis and accessible canvas fallback table retain zero and positive values.
+The server's total is displayed without repeating aggregation in the browser.
+
+Loading, success/empty and error states are explicit. Errors show safe messages with Retry; expired sessions also have
+a full-navigation Sign in link through CVAT's normal login route. A new task hides old data immediately. Effect cleanup
+aborts the request and ignores late completions, preventing previous-task statistics from reappearing.
+
+### Automated checks and source runtime
+
+[The Cypress spec](../tests/cypress/e2e/features2/annotation_analytics.js) ran in Chrome 156 with Cypress 14.5.4.
+It creates/deletes only its own fixture tasks and controls annotation-count responses inside its browser.
+The real COCO and empty-task observations are recorded separately below. The ten passing cases cover selected-ID
+navigation, all chart values/classes, zero/long labels, empty data, narrow layout, HTTP failure and Retry,
+network failure, loading, delayed task navigation, and removal of previous data after 401/403 responses. Final output:
+
+```text
+10 passing (1m)
+Annotation analytics Cypress: {"status":"finished","tests":10,"passed":10,"failed":0,"pending":0}
+```
+
+The actual local invocation was `node ../analytics-dev/run-analytics-cypress.cjs` from the repository root.
+That outside-Git runner supplies the existing test account to Cypress without printing credentials. Equivalent CLI
+reproduction, after configuring `CYPRESS_user` and `CYPRESS_password` for an account that can create its own tasks:
+
+```powershell
+cd tests
+$env:CYPRESS_CACHE_FOLDER='D:/my_codes/full-stack-assessment/analytics-dev/cypress-cache'
+corepack yarn cypress run --browser chrome --spec cypress/e2e/features2/annotation_analytics.js --config video=false
+```
+
+The first navigation test failed because its image-free fixture has no task-details toolbar; it was corrected to use
+the supported task-list action. The subsequent nine-case run passed, followed by the final ten-case run above including
+narrow layout. The local runner's success-exit handling was also corrected. No application failures remain.
+Cypress reported that the production bundle has no coverage file; no code-coverage percentage is claimed.
+
+Checks executed from the repository root:
+
+```powershell
+node node_modules/typescript/bin/tsc -p cvat-ui/tsconfig.json --noEmit
+node node_modules/stylelint/bin/stylelint.mjs cvat-ui/src/components/annotation-analytics-page/styles.scss
+corepack yarn build:cvat-ui
+git diff --check
+```
+
+TypeScript, SCSS lint and whitespace checks exited successfully. ESLint over all changed TS/TSX files and the Cypress
+spec exited with zero errors and 26 return-type warnings, all confirmed to reference unchanged baseline lines in
+`server-proxy.ts`; the new page and tests have no lint warnings. Modified TS files were normalized to LF to satisfy the
+repository's lint rules on this Windows checkout, without unrelated Git changes.
+
+The immutable Yarn install initially hit EXDEV errors in the global cache; a workspace-local cache resolved them.
+The optional native `canvas` package failed its Windows build; installation still completed and the TypeScript,
+production build and browser checks passed. No dependency declarations or lockfiles were changed.
+The final production build succeeded with two asset/entrypoint size warnings and emitted
+`assets/cvat-ui.e8b7b5337300c33b1d9a.min.js`. The served HTML was checked for that exact filename.
+
+The existing ignored Compose override adds a read-only UI mount:
+
+```yaml
+  cvat_ui:
+    volumes:
+      - ./cvat-ui/dist:/usr/share/nginx/html:ro
+```
+
+After the build, these commands preserved the existing robots file and recreated only the UI service:
+
+```powershell
+Copy-Item cvat-ui/robots.txt cvat-ui/dist/robots.txt
+docker compose -f docker-compose.yml -f docker-compose.dev.yml `
+  -f docker-compose.override.yml up -d --no-deps --no-build cvat_ui
+```
+
+### Actual browser observations and reproduction
+
+In a separate Edge browser, normal administrator login and task-detail actions opened both real tasks' new pages.
+Screenshots linked beside R3/R4 were captured and visually inspected. Network captures showed:
+
+| Action | Request | HTTP | Observed data/state |
+| --- | --- | --- | --- |
+| Task 2 action | `/api/test/tasks/2/annotation-counts?org=` | 200 | 96 annotations, all 26 classes |
+| Task 1 action | `/api/test/tasks/1/annotation-counts?org=` | 200 | 0 annotations, no-data message, no graph |
+| Release a browser-held request | Task 2 endpoint | 200 | Loading to real 96-count graph, no empty flash |
+| Browser-local interception | Task 2 endpoint | 503 | Safe error, Retry, no graph or internal detail |
+| Remove interception and Retry | Task 2 endpoint | 200 | Fresh response and restored 96-count graph |
+
+Task 2's values include person 31, book 16, chair 6 and vase 4, matching the backend evidence above.
+Only the verification browser's request was intercepted; the backend remained running normally.
+Final PostgreSQL inspection confirmed task 1 still has 5,000 images/0 shapes and task 2 has 12 images/96 shapes;
+temporary Cypress tasks were removed. No formal MO-1 measurements were performed, and its 150 ms target is unchanged.
+
+To repeat manually, sign in normally, open task 2, choose **Actions -> Annotation analytics**, and compare the graph
+with the Network panel's count response. Scroll the chart to see every class. Open the same action for task 1 to see
+the empty state. For failure, block `*api/test/tasks/2/annotation-counts*` in browser DevTools Request blocking
+and reload the page. Unblock it and click **Retry** to restore the graph. No backend shutdown or task edits are needed.
