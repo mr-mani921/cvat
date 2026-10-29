@@ -37,10 +37,12 @@ An honest performance miss or explicitly declared unfinished requirement is not 
   **Evidence required:** reproducible steps and observed results for both cases, with relevant automated tests.
   **Verified evidence:** actual task 1 [empty state](evidence/annotation-analytics-empty.png), browser-local HTTP 503
   [error state](evidence/annotation-analytics-error.png), successful Retry and loading/stale-response tests below.
-- [ ] **R5 - Existing login and task access.** Use CVAT authentication and task permissions. Allow an authorized user;
+- [x] **R5 - Existing login and task access.** Use CVAT authentication and task permissions. Allow an authorized user;
   refuse an anonymous request and an authenticated user without access to that task, without disclosing counts.
   **Evidence required:** tests exercising actual authorization, status/body outputs for all three cases, and live
   rejection demonstrations. Do not include passwords, session cookies or tokens in evidence.
+  **Verified evidence:** [Requirement 5 verification](#requirement-5-verification): live Task 2 responses of
+  200/401/403, three passing authorization tests with real OPA enforcement, and actual browser denials without stale data.
 - [ ] **R6 - Endpoint speed measured.** Evaluate MO-1 using its predefined dataset, protocol, three excluded warm-ups
   and five measured requests. Report median and spread, raw output and conditions; say achieved or missed with reasons.
   **Evidence required:** completed [MO-1 results](Objectives.md#calculation-and-evidence), tested SHA and correctness
@@ -114,7 +116,7 @@ review. Inspect these conditions explicitly before marking submission ready.
 
 ## Current limitations and unfinished work
 
-R1-R4 are verified locally as recorded below. R5-R10 remain unchecked. Formal performance measurements,
+R1-R5 are verified locally as recorded below. R6-R10 remain unchecked. Formal performance measurements,
 recording, fork `main` setup, PR and final reply remain outstanding. The original 5,000-image task is preserved;
 its COCO annotations have not been imported. The 12-image sample is validation data, not an MO-1 benchmark result.
 R8-R9 are stretch goals in the committed Plan; if omitted, retain their unchecked state and record the actual reason.
@@ -417,3 +419,122 @@ To repeat manually, sign in normally, open task 2, choose **Actions -> Annotatio
 with the Network panel's count response. Scroll the chart to see every class. Open the same action for task 1 to see
 the empty state. For failure, block `*api/test/tasks/2/annotation-counts*` in browser DevTools Request blocking
 and reload the page. Unblock it and click **Retry** to restore the graph. No backend shutdown or task edits are needed.
+
+## Requirement 5 verification
+
+Verified on 29 October 2026 against commit `6f909bead4a5efbd6b6fb37d9277b3978d0ba055` and the existing local stack.
+No application changes, service rebuilds, task edits or permission changes were necessary.
+
+### Live authentication and task access
+
+Requests used `GET http://localhost:8080/api/test/tasks/2/annotation-counts`.
+Both dedicated accounts are ordinary users (`is_staff=false`, `is_superuser=false`), confirmed in PostgreSQL;
+`assessment-counts-owner` owns task 2, and `assessment-counts-outsider` has no access.
+Authenticated checks used CVAT's normal `/api/auth/login` and session cookies, without an Authorization header.
+
+| Scenario | HTTP | Observed response |
+| --- | --- | --- |
+| Task owner | 200 | `task_id=2`, `total=96`, 26 populated classes; all counts match the filtered COCO reference |
+| Anonymous | 401 | `{"detail":"Authentication credentials were not provided."}` |
+| Authenticated outsider | 403 | `{"detail":"You do not have permission to perform this action."}` |
+
+Neither rejected response contained `counts` or `total`. Owner examples were person 31, book 16, chair 6 and vase 4.
+A read-only PostgreSQL query independently confirmed task 2 still has 96 saved shapes.
+The running server's read-only `/opt/cvat/cvat` mount points to this checkout's `cvat/` source.
+
+These PowerShell 7 commands were executed from the repository root with the same results. Credentials remain in
+the existing private file outside Git; login responses and session values are deliberately not printed.
+CVAT's response can be returned as bytes by PowerShell, so decode UTF-8 before parsing.
+
+```powershell
+$base = 'http://localhost:8080'
+$accounts = Get-Content ../analytics-dev/credentials.json -Raw | ConvertFrom-Json
+foreach ($role in 'owner', 'anonymous', 'outsider') {
+    $session = [Microsoft.PowerShell.Commands.WebRequestSession]::new()
+    if ($role -ne 'anonymous') {
+        $null = Invoke-WebRequest "$base/api/auth/login" -Method Post `
+            -ContentType 'application/json' -Body ($accounts.$role | ConvertTo-Json) -WebSession $session
+    }
+    $response = Invoke-WebRequest "$base/api/test/tasks/2/annotation-counts" `
+        -WebSession $session -SkipHttpErrorCheck
+    $json = if ($response.Content -is [byte[]]) {
+        [Text.Encoding]::UTF8.GetString($response.Content)
+    } else { [string]$response.Content }
+    $body = $json | ConvertFrom-Json
+    if ($role -eq 'owner') {
+        if ($response.StatusCode -ne 200 -or $body.total -ne 96 -or $body.counts.Count -ne 26) {
+            throw 'Owner result mismatch'
+        }
+        "$role HTTP $($response.StatusCode): task=$($body.task_id), total=$($body.total), classes=$($body.counts.Count)"
+    } else {
+        if ($body.PSObject.Properties.Name -contains 'counts') { throw 'Rejected response disclosed counts' }
+        "$role HTTP $($response.StatusCode): $json"
+    }
+}
+Remove-Variable accounts, session
+```
+
+### Permission path and focused tests
+
+- `cvat/apps/test/permissions.py:6` inherits CVAT's `TaskPermission`; line 11 maps the action to
+  `VIEW_ANNOTATIONS` (`view:annotations`), the existing annotation-read scope.
+- `cvat/settings/base.py:187` supplies `IsAuthenticated` and the access-token `PolicyEnforcer` with CVAT's standard
+  authentication classes. `cvat/apps/access_tokens/permissions.py:432` delegates to IAM before token policy checks;
+  `cvat/apps/iam/permissions.py:315` creates the task permission and calls real OPA access checks.
+- `cvat/apps/test/views.py:39` calls DRF `get_object()`, enforcing task object permissions before the aggregation
+  begins at line 40. `test_authenticated_outsider_is_rejected_before_aggregation` captures SQL and asserts that
+  a 403 request performs no `engine_labeledshape` query. Authorization is not mocked.
+- `cvat-core/src/server-proxy.ts:2531` uses the existing Axios request layer;
+  `cvat-core/src/axios-config.ts:8` enables existing credentials and CSRF handling. No custom authentication was added.
+
+Reran only these three relevant backend cases using the existing test image, isolated test database and real OPA:
+
+```powershell
+docker run --rm --entrypoint python3 --network container:cvat_opa `
+  --mount 'type=bind,source=D:/my_codes/full-stack-assessment/cvat,target=/opt/cvat,readonly' `
+  -e CVAT_BASE_DIR=/tmp -e PYTHONDONTWRITEBYTECODE=1 cvat/analytics-tests:local `
+  /opt/cvat/manage.py test `
+  cvat.apps.test.tests.test_annotation_counts.AnnotationCountsAPITestCase.test_multiple_labels_and_jobs `
+  cvat.apps.test.tests.test_annotation_counts.AnnotationCountsAPITestCase.test_anonymous_is_rejected `
+  cvat.apps.test.tests.test_annotation_counts.AnnotationCountsAPITestCase.test_authenticated_outsider_is_rejected_before_aggregation `
+  --settings cvat.settings.testing -v 2
+```
+
+Actual result: **3 tests passed in 0.227 s**, `OK`; Django system check found no issues.
+No test or application defect required a fix. The full backend and Cypress suites were not repeated for this check.
+
+### Live browser denial and previous data
+
+A separate Edge profile used the normal owner login form and task actions to display task 2's real 96-count graph.
+Without reloading the page, the verification used CVAT's existing `window.cvat.server.logout()` and
+`window.cvat.server.login(credential, password)` methods, then SPA navigation between task 1 and task 2.
+This kept the page mounted to exercise clearing previously loaded statistics; no responses were intercepted.
+The owner graph was restored before switching to the outsider, so both rejection sequences began with real data.
+Actual browser network responses were 200 for task 2 as owner, 401 for tasks 1 and 2 after logout, and 403 for
+tasks 1 and 2 as outsider. Each denied view had no chart, summary or previous total. The 401 view offered Sign in;
+the 403 view stated that the user has no access. Screenshots of both task 2 denial states were visually inspected.
+A subsequent screenshot capture timed out; the final DOM-only pass successfully repeated both denial sequences.
+
+`cvat-ui/src/components/annotation-analytics-page/annotation-analytics-page.tsx:66` resets request state, aborts
+obsolete requests and handles errors; line 89 immediately hides another task's results; line 111 renders the safe
+error view. The previously passing Cypress 401/403 cases in
+`tests/cypress/e2e/features2/annotation_analytics.js` cover the same transitions with controlled responses;
+the browser checks above additionally exercised the actual backend permissions.
+
+To repeat manually, sign in as the owner and open `/tasks/2/annotation-analytics`, then use a private window signed
+in as the outsider to open the same URL. Expect the graph and a no-access message respectively. In a signed-out
+window, request the API URL to observe 401; normal direct page navigation may redirect to CVAT's login screen.
+For the in-place denial check, load the owner graph and run these DevTools commands, waiting for each request.
+Observe 401 and absence of the old graph in Network and Elements:
+
+```javascript
+await window.cvat.server.logout();
+history.pushState({}, '', '/tasks/1/annotation-analytics');
+dispatchEvent(new PopStateEvent('popstate'));
+// After the first denied request, return to task 2 without a reload:
+history.pushState({}, '', '/tasks/2/annotation-analytics');
+dispatchEvent(new PopStateEvent('popstate'));
+```
+
+This evidence covers the two dedicated local users and tasks; it is not an audit of every organization role or
+personal access-token scope. Formal MO-1 measurements remain unperformed and the 150 ms objective is unchanged.
